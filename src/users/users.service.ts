@@ -8,7 +8,7 @@ import { HashService } from '../hash/hash.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { FindUsersDto } from './dto/find-user.dto';
-import { Repository, FindOneOptions } from 'typeorm';
+import { Repository, FindOneOptions, QueryFailedError } from 'typeorm';
 import { User } from './entities/user.entity';
 
 @Injectable()
@@ -17,17 +17,27 @@ export class UsersService {
     @InjectRepository(User)
     private userRepository: Repository<User>,
     private hashServise: HashService,
-  ) {}
+  ) { }
 
   async create(createUserDto: CreateUserDto): Promise<User> {
     const { password } = createUserDto;
+    try {
+      const newUser = this.userRepository.create({
+        ...createUserDto,
+        password: await this.hashServise.hashPassword(password),
+      });
 
-    const newUser = this.userRepository.create({
-      ...createUserDto,
-      password: await this.hashServise.hashPassword(password),
-    });
-
-    return await this.userRepository.save(newUser);
+      return await this.userRepository.save(newUser);
+    } catch (error) {
+      if (error instanceof QueryFailedError) {
+        const err = error.driverError;
+        if (err.code === 23505) {
+          throw new ConflictException(
+            'Пользователь с таким email или username уже зарегистрирован',
+          );
+        }
+      }
+    }
   }
 
   async findOne(options: FindOneOptions<User>): Promise<User> {
